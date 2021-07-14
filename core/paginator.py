@@ -1,17 +1,5 @@
 import typing
 import asyncio
-<<<<<<< HEAD
-<<<<<<< HEAD
-import discord
-from discord.ext.commands import Paginator as CommandPaginator
-from discord.ext import menus
-from discord import User, Reaction, Message, Embed
-from discord import HTTPException, InvalidArgument
-from discord.ext import commands
-=======
->>>>>>> parent of 1c10b3e (Update paginator.py)
-=======
->>>>>>> parent of 1c10b3e (Update paginator.py)
 
 from discord import User, Reaction, Message, Embed
 from discord import HTTPException, InvalidArgument
@@ -21,7 +9,6 @@ from discord.ext import commands
 class PaginatorSession:
     """
     Class that interactively paginates something.
-<<<<<<< HEAD
 
     Parameters
     ----------
@@ -50,36 +37,6 @@ class PaginatorSession:
         A mapping for reaction to method.
     """
 
-=======
-
-    Parameters
-    ----------
-    ctx : Context
-        The context of the command.
-    timeout : float
-        How long to wait for before the session closes.
-    pages : List[Any]
-        A list of entries to paginate.
-
-    Attributes
-    ----------
-    ctx : Context
-        The context of the command.
-    timeout : float
-        How long to wait for before the session closes.
-    pages : List[Any]
-        A list of entries to paginate.
-    running : bool
-        Whether the paginate session is running.
-    base : Message
-        The `Message` of the `Embed`.
-    current : int
-        The current page number.
-    reaction_map : Dict[str, method]
-        A mapping for reaction to method.
-    """
-
->>>>>>> parent of 1c10b3e (Update paginator.py)
     def __init__(self, ctx: commands.Context, *pages, **options):
         self.ctx = ctx
         self.timeout: int = options.get("timeout", 210)
@@ -265,7 +222,6 @@ class EmbedPaginatorSession(PaginatorSession):
 
     async def _show_page(self, page):
         await self.base.edit(embed=page)
-<<<<<<< HEAD
 
 
 class MessagePaginatorSession(PaginatorSession):
@@ -291,33 +247,6 @@ class MessagePaginatorSession(PaginatorSession):
         self._set_footer()
         self.base = await self.ctx.send(content=item, embed=self.embed)
 
-=======
-
-
-class MessagePaginatorSession(PaginatorSession):
-    def __init__(self, ctx: commands.Context, *messages, embed: Embed = None, **options):
-        self.embed = embed
-        self.footer_text = self.embed.footer.text if embed is not None else None
-        super().__init__(ctx, *messages, **options)
-
-    def add_page(self, item: str) -> None:
-        if isinstance(item, str):
-            self.pages.append(item)
-        else:
-            raise TypeError("Page must be a str object.")
-
-    def _set_footer(self):
-        if self.embed is not None:
-            footer_text = f"Page {self.current+1} of {len(self.pages)}"
-            if self.footer_text:
-                footer_text = footer_text + " • " + self.footer_text
-            self.embed.set_footer(text=footer_text, icon_url=self.embed.footer.icon_url)
-
-    async def _create_base(self, item: str) -> None:
-        self._set_footer()
-        self.base = await self.ctx.send(content=item, embed=self.embed)
-
->>>>>>> parent of 1c10b3e (Update paginator.py)
     async def _show_page(self, page) -> None:
         self._set_footer()
         await self.base.edit(content=page, embed=self.embed)
