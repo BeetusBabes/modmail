@@ -1,132 +1,261 @@
+import typing
 import asyncio
+<<<<<<< HEAD
 import discord
 from discord.ext.commands import Paginator as CommandPaginator
 from discord.ext import menus
 from discord import User, Reaction, Message, Embed
 from discord import HTTPException, InvalidArgument
 from discord.ext import commands
+=======
+>>>>>>> parent of 1c10b3e (Update paginator.py)
 
-class RoboPages(menus.MenuPages):
-    def __init__(self, source):
-        super().__init__(source=source, check_embeds=True)
+from discord import User, Reaction, Message, Embed
+from discord import HTTPException, InvalidArgument
+from discord.ext import commands
 
-    async def finalize(self, timed_out):
-        try:
-            if timed_out:
-                await self.message.clear_reactions()
-            else:
-                await self.message.delete()
-        except discord.HTTPException:
-            pass
 
-    @menus.button('\N{INFORMATION SOURCE}\ufe0f', position=menus.Last(3))
-    async def show_help(self, payload):
-        """shows this message"""
-        embed = discord.Embed(title='Paginator help', description='Hello! Welcome to the help page.')
-        messages = []
-        for (emoji, button) in self.buttons.items():
-            messages.append(f'{emoji}: {button.action.__doc__}')
+class PaginatorSession:
+    """
+    Class that interactively paginates something.
 
-        embed.add_field(name='What are these reactions for?', value='\n'.join(messages), inline=False)
-        embed.set_footer(text=f'We were on page {self.current_page + 1} before this message.')
-        await self.message.edit(content=None, embed=embed)
+    Parameters
+    ----------
+    ctx : Context
+        The context of the command.
+    timeout : float
+        How long to wait for before the session closes.
+    pages : List[Any]
+        A list of entries to paginate.
 
-        async def go_back_to_current_page():
-            await asyncio.sleep(30.0)
-            await self.show_page(self.current_page)
-
-        self.bot.loop.create_task(go_back_to_current_page())
-
-    @menus.button('\N{INPUT SYMBOL FOR NUMBERS}', position=menus.Last(1.5))
-    async def numbered_page(self, payload):
-        """lets you type a page number to go to"""
-        channel = self.message.channel
-        author_id = payload.user_id
-        to_delete = []
-        to_delete.append(await channel.send('What page do you want to go to?'))
-
-        def message_check(m):
-            return m.author.id == author_id and \
-                   channel == m.channel and \
-                   m.content.isdigit()
-
-        try:
-            msg = await self.bot.wait_for('message', check=message_check, timeout=30.0)
-        except asyncio.TimeoutError:
-            to_delete.append(await channel.send('Took too long.'))
-            await asyncio.sleep(5)
-        else:
-            page = int(msg.content)
-            to_delete.append(msg)
-            await self.show_checked_page(page - 1)
-
-        try:
-            await channel.delete_messages(to_delete)
-        except Exception:
-            pass
-
-class FieldPageSource(menus.ListPageSource):
-    """A page source that requires (field_name, field_value) tuple items."""
-    def __init__(self, entries, *, per_page=12):
-        super().__init__(entries, per_page=per_page)
-        self.embed = discord.Embed(colour=discord.Colour.from_rgb(48,162,242))
-
-    async def format_page(self, menu, entries):
-        self.embed.clear_fields()
-        self.embed.description = discord.Embed.Empty
-
-        for key, value in entries:
-            self.embed.add_field(name=key, value=value, inline=False)
-
-        maximum = self.get_max_pages()
-        if maximum > 1:
-            text = f'Page {menu.current_page + 1}/{maximum} ({len(self.entries)} entries)'
-            self.embed.set_footer(text=text)
-
-        return self.embed
-
-class TextPageSource(menus.ListPageSource):
-    def __init__(self, text, *, prefix='```', suffix='```', max_size=2000):
-        pages = CommandPaginator(prefix=prefix, suffix=suffix, max_size=max_size - 200)
-        for line in text.split('\n'):
-            pages.add_line(line)
-
-        super().__init__(entries=pages, per_page=1)
-
-    async def format_page(self, menu, content):
-        maximum = self.get_max_pages()
-        if maximum > 1:
-            return f'{content}\nPage {menu.current_page + 1}/{maximum}'
-        return content
-
-class SimplePageSource(menus.ListPageSource):
-    def __init__(self, entries, *, per_page=12):
-        super().__init__(entries, per_page=per_page)
-        self.initial_page = True
-
-    async def format_page(self, menu, entries):
-        pages = []
-        for index, entry in enumerate(entries, start=menu.current_page * self.per_page):
-            pages.append(f'{index + 1}. {entry}')
-
-        maximum = self.get_max_pages()
-        if maximum > 1:
-            footer = f'Page {menu.current_page + 1}/{maximum} ({len(self.entries)} entries)'
-            menu.embed.set_footer(text=footer)
-
-        if self.initial_page and self.is_paginating():
-            pages.append('')
-            pages.append('Confused? React with \N{INFORMATION SOURCE} for more info.')
-            self.initial_page = False
-
-        menu.embed.description = '\n'.join(pages)
-        return menu.embed
-
-class SimplePages(RoboPages):
-    """A simple pagination session reminiscent of the old Pages interface.
-    Basically an embed with some normal formatting.
+    Attributes
+    ----------
+    ctx : Context
+        The context of the command.
+    timeout : float
+        How long to wait for before the session closes.
+    pages : List[Any]
+        A list of entries to paginate.
+    running : bool
+        Whether the paginate session is running.
+    base : Message
+        The `Message` of the `Embed`.
+    current : int
+        The current page number.
+    reaction_map : Dict[str, method]
+        A mapping for reaction to method.
     """
 
-    def __init__(self, entries, *, per_page=12):
-        super().__init__(SimplePageSource(entries, per_page=per_page))
-        self.embed = discord.Embed(colour=discord.Colour.from_rgb(48,162,242))
+    def __init__(self, ctx: commands.Context, *pages, **options):
+        self.ctx = ctx
+        self.timeout: int = options.get("timeout", 210)
+        self.running = False
+        self.base: Message = None
+        self.current = 0
+        self.pages = list(pages)
+        self.destination = options.get("destination", ctx)
+        self.reaction_map = {
+            "⏮": self.first_page,
+            "◀": self.previous_page,
+            "▶": self.next_page,
+            "⏭": self.last_page,
+            "🛑": self.close,
+        }
+
+    def add_page(self, item) -> None:
+        """
+        Add a page.
+        """
+        raise NotImplementedError
+
+    async def create_base(self, item) -> None:
+        """
+        Create a base `Message`.
+        """
+        await self._create_base(item)
+
+        if len(self.pages) == 1:
+            self.running = False
+            return
+
+        self.running = True
+        for reaction in self.reaction_map:
+            if len(self.pages) == 2 and reaction in "⏮⏭":
+                continue
+            await self.ctx.bot.add_reaction(self.base, reaction)
+
+    async def _create_base(self, item) -> None:
+        raise NotImplementedError
+
+    async def show_page(self, index: int) -> None:
+        """
+        Show a page by page number.
+
+        Parameters
+        ----------
+        index : int
+            The index of the page.
+        """
+        if not 0 <= index < len(self.pages):
+            return
+
+        self.current = index
+        page = self.pages[index]
+
+        if self.running:
+            await self._show_page(page)
+        else:
+            await self.create_base(page)
+
+    async def _show_page(self, page):
+        raise NotImplementedError
+
+    def react_check(self, reaction: Reaction, user: User) -> bool:
+        """
+
+        Parameters
+        ----------
+        reaction : Reaction
+            The `Reaction` object of the reaction.
+        user : User
+            The `User` or `Member` object of who sent the reaction.
+
+        Returns
+        -------
+        bool
+        """
+        return (
+            reaction.message.id == self.base.id
+            and user.id == self.ctx.author.id
+            and reaction.emoji in self.reaction_map.keys()
+        )
+
+    async def run(self) -> typing.Optional[Message]:
+        """
+        Starts the pagination session.
+
+        Returns
+        -------
+        Optional[Message]
+            If it's closed before running ends.
+        """
+        if not self.running:
+            await self.show_page(self.current)
+        while self.running:
+            try:
+                reaction, user = await self.ctx.bot.wait_for(
+                    "reaction_add", check=self.react_check, timeout=self.timeout
+                )
+            except asyncio.TimeoutError:
+                return await self.close(delete=False)
+            else:
+                action = self.reaction_map.get(reaction.emoji)
+                await action()
+            try:
+                await self.base.remove_reaction(reaction, user)
+            except (HTTPException, InvalidArgument):
+                pass
+
+    async def previous_page(self) -> None:
+        """
+        Go to the previous page.
+        """
+        await self.show_page(self.current - 1)
+
+    async def next_page(self) -> None:
+        """
+        Go to the next page.
+        """
+        await self.show_page(self.current + 1)
+
+    async def close(self, delete: bool = True) -> typing.Optional[Message]:
+        """
+        Closes the pagination session.
+
+        Parameters
+        ----------
+        delete : bool, optional
+            Whether or delete the message upon closure.
+            Defaults to `True`.
+
+        Returns
+        -------
+        Optional[Message]
+            If `delete` is `True`.
+        """
+        self.running = False
+
+        sent_emoji, _ = await self.ctx.bot.retrieve_emoji()
+        await self.ctx.bot.add_reaction(self.ctx.message, sent_emoji)
+
+        if delete:
+            return await self.base.delete()
+
+        try:
+            await self.base.clear_reactions()
+        except HTTPException:
+            pass
+
+    async def first_page(self) -> None:
+        """
+        Go to the first page.
+        """
+        await self.show_page(0)
+
+    async def last_page(self) -> None:
+        """
+        Go to the last page.
+        """
+        await self.show_page(len(self.pages) - 1)
+
+
+class EmbedPaginatorSession(PaginatorSession):
+    def __init__(self, ctx: commands.Context, *embeds, **options):
+        super().__init__(ctx, *embeds, **options)
+
+        if len(self.pages) > 1:
+            for i, embed in enumerate(self.pages):
+                footer_text = f"Page {i + 1} of {len(self.pages)}"
+                if embed.footer.text:
+                    footer_text = footer_text + " • " + embed.footer.text
+                embed.set_footer(text=footer_text, icon_url=embed.footer.icon_url)
+
+    def add_page(self, item: Embed) -> None:
+        if isinstance(item, Embed):
+            self.pages.append(item)
+        else:
+            raise TypeError("Page must be an Embed object.")
+
+    async def _create_base(self, item: Embed) -> None:
+        self.base = await self.destination.send(embed=item)
+
+    async def _show_page(self, page):
+        await self.base.edit(embed=page)
+
+
+class MessagePaginatorSession(PaginatorSession):
+    def __init__(self, ctx: commands.Context, *messages, embed: Embed = None, **options):
+        self.embed = embed
+        self.footer_text = self.embed.footer.text if embed is not None else None
+        super().__init__(ctx, *messages, **options)
+
+    def add_page(self, item: str) -> None:
+        if isinstance(item, str):
+            self.pages.append(item)
+        else:
+            raise TypeError("Page must be a str object.")
+
+    def _set_footer(self):
+        if self.embed is not None:
+            footer_text = f"Page {self.current+1} of {len(self.pages)}"
+            if self.footer_text:
+                footer_text = footer_text + " • " + self.footer_text
+            self.embed.set_footer(text=footer_text, icon_url=self.embed.footer.icon_url)
+
+    async def _create_base(self, item: str) -> None:
+        self._set_footer()
+        self.base = await self.ctx.send(content=item, embed=self.embed)
+
+    async def _show_page(self, page) -> None:
+        self._set_footer()
+        await self.base.edit(content=page, embed=self.embed)
