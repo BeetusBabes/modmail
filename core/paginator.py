@@ -2,6 +2,9 @@ import asyncio
 import discord
 from discord.ext.commands import Paginator as CommandPaginator
 from discord.ext import menus
+from discord import User, Reaction, Message, Embed
+from discord import HTTPException, InvalidArgument
+from discord.ext import commands
 
 class RoboPages(menus.MenuPages):
     def __init__(self, source):
